@@ -177,7 +177,7 @@ export function PageHeader({ title, description, action }: PageHeaderProps) {
         </h1>
         {description && <p className="text-[13px] sm:text-sm text-muted mt-1">{description}</p>}
       </div>
-      {action && <div className="shrink-0 flex flex-wrap items-center gap-2">{action}</div>}
+      {action && <div className="w-full sm:w-auto sm:shrink-0 flex flex-wrap items-center gap-2">{action}</div>}
     </div>
   );
 }
@@ -262,14 +262,14 @@ export function DateRangeFilter({
   className = '',
 }: DateRangeFilterProps) {
   const inputClass =
-    'h-9 px-2.5 text-[13px] bg-surface border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-focus focus:border-transparent text-secondary-text';
+    'h-9 px-2.5 text-[13px] bg-surface border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-focus focus:border-transparent text-secondary-text min-w-0';
   return (
     <div className={`flex flex-wrap items-center gap-2 ${className}`}>
       <select
         aria-label="Date range"
         value={value.preset}
         onChange={(e) => onChange({ ...value, preset: e.target.value as DatePreset })}
-        className={`${inputClass} cursor-pointer`}
+        className={`${inputClass} w-full sm:w-auto cursor-pointer`}
       >
         {presets.map((p) => (
           <option key={p} value={p}>
@@ -278,14 +278,14 @@ export function DateRangeFilter({
         ))}
       </select>
       {value.preset === 'custom' && (
-        <>
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 w-full sm:w-auto">
           <input
             type="date"
             aria-label="From date"
             value={value.from}
             max={value.to || undefined}
             onChange={(e) => onChange({ ...value, from: e.target.value })}
-            className={inputClass}
+            className={`${inputClass} flex-1 sm:flex-initial`}
           />
           <span className="text-xs text-muted">to</span>
           <input
@@ -294,9 +294,9 @@ export function DateRangeFilter({
             value={value.to}
             min={value.from || undefined}
             onChange={(e) => onChange({ ...value, to: e.target.value })}
-            className={inputClass}
+            className={`${inputClass} flex-1 sm:flex-initial`}
           />
-        </>
+        </div>
       )}
     </div>
   );

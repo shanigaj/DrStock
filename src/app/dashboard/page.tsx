@@ -24,20 +24,20 @@ import {
   selectTodayAppointments,
 } from '@/store';
 import { formatCurrency, formatDate, formatCompactINR, getRelativeTime } from '@/lib/utils';
+import { buildCashflowBuckets, DashboardPeriod } from '@/lib/reports';
 import { getExpiryStatus } from '@/types';
 import { PageHeader, StatCard, StatusBadge } from '@/components/ui/SharedComponents';
 
-type Period = '7d' | '30d' | '90d' | 'all';
-const PERIODS: { value: Period; label: string }[] = [
-  { value: '7d', label: 'Last 7 days' },
-  { value: '30d', label: 'Last 30 days' },
-  { value: '90d', label: 'Last 90 days' },
-  { value: 'all', label: 'All time' },
+const PERIODS: { value: DashboardPeriod; label: string; shortLabel: string }[] = [
+  { value: '7d', label: 'Last 7 days', shortLabel: '7D' },
+  { value: '30d', label: 'Last 30 days', shortLabel: '30D' },
+  { value: '90d', label: 'Last 90 days', shortLabel: '90D' },
+  { value: 'all', label: 'All time', shortLabel: 'All' },
 ];
 
 const SERIES = { sales: '#0f766e', purchases: '#2563eb' };
 
-function periodWindows(period: Period): { start: Date; prevStart: Date; prevEnd: Date } | null {
+function periodWindows(period: DashboardPeriod): { start: Date; prevStart: Date; prevEnd: Date } | null {
   const now = new Date();
   if (period === 'all') return null;
   const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
@@ -51,7 +51,7 @@ function percentChange(current: number, previous: number): number | undefined {
 }
 
 export default function DashboardPage() {
-  const [period, setPeriod] = useState<Period>('30d');
+  const [period, setPeriod] = useState<DashboardPeriod>('30d');
 
   const products = useStore((s) => s.products);
   const sales = useStore((s) => s.sales);
@@ -99,21 +99,19 @@ export default function DashboardPage() {
     [expired, nearExpiry]
   );
 
-  const monthly = useMemo(() => {
-    const now = new Date();
-    return Array.from({ length: 6 }, (_, i) => {
-      const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
-      const match = (date: string) => {
-        const x = new Date(date);
-        return x.getFullYear() === d.getFullYear() && x.getMonth() === d.getMonth();
-      };
-      return {
-        month: d.toLocaleDateString('en-IN', { month: 'short' }),
-        sales: Math.round(activeSales.filter((s) => match(s.date)).reduce((a, s) => a + s.grandTotal, 0)),
-        purchases: Math.round(committedPOs.filter((p) => match(p.date)).reduce((a, p) => a + p.totalAmount, 0)),
-      };
-    });
-  }, [activeSales, committedPOs]);
+  const cashflow = useMemo(
+    () =>
+      buildCashflowBuckets(
+        activeSales,
+        (s) => s.date,
+        (s) => s.grandTotal,
+        committedPOs,
+        (p) => p.date,
+        (p) => p.totalAmount,
+        period
+      ),
+    [activeSales, committedPOs, period]
+  );
 
   const categories = useMemo(() => {
     const map = new Map<string, { value: number; units: number; products: number }>();
@@ -128,10 +126,13 @@ export default function DashboardPage() {
     return [...map.entries()].map(([name, v]) => ({ name, ...v })).sort((a, b) => b.value - a.value);
   }, [products]);
 
-  const recentTransactions = useMemo(
-    () =>
-      [
-        ...sales.map((s) => ({
+  const recentTransactions = useMemo(() => {
+    const w = periodWindows(period);
+    const inPeriod = (d: string) => !w || new Date(d) >= w.start;
+    return [
+      ...sales
+        .filter((s) => inPeriod(s.date))
+        .map((s) => ({
           id: s.id,
           ref: s.orderId,
           type: 'sale' as const,
@@ -140,7 +141,9 @@ export default function DashboardPage() {
           amount: s.grandTotal,
           status: s.paymentStatus as string,
         })),
-        ...purchaseOrders.map((p) => ({
+      ...purchaseOrders
+        .filter((p) => inPeriod(p.date))
+        .map((p) => ({
           id: p.id,
           ref: p.orderId,
           type: 'purchase' as const,
@@ -149,13 +152,19 @@ export default function DashboardPage() {
           amount: p.totalAmount,
           status: p.status as string,
         })),
-      ]
-        .sort((a, b) => b.date.localeCompare(a.date))
-        .slice(0, 5),
-    [sales, purchaseOrders]
-  );
+    ]
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 5);
+  }, [sales, purchaseOrders, period]);
 
-  const periodLabel = PERIODS.find((p) => p.value === period)!.label.toLowerCase();
+  const filteredActivity = useMemo(() => {
+    const w = periodWindows(period);
+    const inPeriod = (d: string) => !w || new Date(d) >= w.start;
+    return activityLogs.filter((log) => inPeriod(log.date)).slice(0, 6);
+  }, [activityLogs, period]);
+
+  const activePeriodLabel = PERIODS.find((p) => p.value === period)!.label;
+  const periodLabel = activePeriodLabel.toLowerCase();
   const trendLabel = period === 'all' ? '' : 'vs previous period';
   const maxCategory = Math.max(...categories.map((c) => c.value), 1);
 
@@ -165,27 +174,33 @@ export default function DashboardPage() {
         title="Overview"
         description={`${profile.businessName} · ${formatDate(new Date().toISOString())}`}
         action={
-          <div className="flex flex-wrap items-center gap-2.5">
-            <div role="tablist" aria-label="Period filter" className="inline-flex rounded-lg border border-border p-0.5 bg-surface">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            <div
+              role="tablist"
+              aria-label="Period filter"
+              className="grid grid-cols-4 sm:inline-flex flex-1 min-w-[200px] sm:flex-initial rounded-lg border border-border p-0.5 bg-surface"
+            >
               {PERIODS.map((p) => (
                 <button
                   key={p.value}
+                  type="button"
                   role="tab"
                   aria-selected={period === p.value}
                   onClick={() => setPeriod(p.value)}
-                  className={`px-2.5 sm:px-3 h-8 text-xs font-medium rounded-md transition-colors ${
+                  className={`px-2 sm:px-3 h-8 text-xs font-medium rounded-md whitespace-nowrap text-center transition-colors ${
                     period === p.value
                       ? 'bg-foreground text-white'
                       : 'text-secondary-text hover:text-foreground hover:bg-hover-surface'
                   }`}
                 >
-                  {p.label}
+                  <span className="sm:hidden">{p.shortLabel}</span>
+                  <span className="hidden sm:inline">{p.label}</span>
                 </button>
               ))}
             </div>
             <Link
               href="/sales?action=create"
-              className="inline-flex items-center gap-1.5 h-9 px-3.5 text-[13px] font-medium text-primary-foreground bg-primary rounded-lg hover:bg-primary-hover transition-colors"
+              className="inline-flex items-center justify-center gap-1.5 h-9 px-3.5 text-[13px] font-medium text-primary-foreground bg-primary rounded-lg hover:bg-primary-hover transition-colors whitespace-nowrap shrink-0"
             >
               <Plus className="w-4 h-4" /> New Sale
             </Link>
@@ -234,7 +249,7 @@ export default function DashboardPage() {
         />
         <Link
           href="/inventory?status=low-stock"
-          className="rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-focus min-[480px]:col-span-2 lg:col-span-1 block"
+          className="rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-focus min-[480px]:col-span-2 lg:col-span-2 xl:col-span-1 block"
         >
           <StatCard
             title="Low Stock Alerts"
@@ -257,7 +272,7 @@ export default function DashboardPage() {
           <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
             <div>
               <h2 className="text-sm font-semibold text-foreground">Sales vs Purchases</h2>
-              <p className="text-xs text-muted mt-0.5">6-month revenue &amp; procurement cashflow (excl. drafts)</p>
+              <p className="text-xs text-muted mt-0.5">{cashflow.subtitle} (excl. drafts)</p>
             </div>
             <div className="flex items-center gap-4 text-xs font-medium text-secondary-text" aria-hidden>
               <span className="flex items-center gap-1.5">
@@ -268,27 +283,41 @@ export default function DashboardPage() {
               </span>
             </div>
           </div>
-          <div className="h-[260px] w-full min-w-0" role="img" aria-label="Monthly sales vs purchases chart">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={monthly} margin={{ top: 6, right: 8, left: 0, bottom: 0 }} barGap={4} barCategoryGap="28%">
-                <CartesianGrid vertical={false} stroke="#E4E7EC" />
-                <XAxis dataKey="month" tickLine={false} axisLine={false} fontSize={12} stroke="#667085" />
-                <YAxis tickLine={false} axisLine={false} fontSize={11} stroke="#667085" width={54} tickFormatter={formatCompactINR} />
-                <Tooltip
-                  cursor={{ fill: '#F9FAFB' }}
-                  formatter={(v, name) => [formatCurrency(Number(v) || 0), name === 'sales' ? 'Sales' : 'Purchases']}
-                  contentStyle={{
-                    backgroundColor: '#FFFFFF',
-                    border: '1px solid #E4E7EC',
-                    borderRadius: 8,
-                    fontSize: 12,
-                    boxShadow: '0 4px 12px rgba(16, 24, 40, 0.08)',
-                  }}
-                />
-                <Bar dataKey="sales" fill={SERIES.sales} radius={[4, 4, 0, 0]} maxBarSize={24} />
-                <Bar dataKey="purchases" fill={SERIES.purchases} radius={[4, 4, 0, 0]} maxBarSize={24} />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="h-[260px] w-full min-w-0" role="img" aria-label="Sales vs purchases cashflow chart">
+            {cashflow.buckets.some((b) => b.sales > 0 || b.purchases > 0) ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={cashflow.buckets} margin={{ top: 6, right: 8, left: 0, bottom: 0 }} barGap={4} barCategoryGap="24%">
+                  <CartesianGrid vertical={false} stroke="#E4E7EC" />
+                  <XAxis
+                    dataKey="label"
+                    tickLine={false}
+                    axisLine={false}
+                    fontSize={11}
+                    stroke="#667085"
+                    interval="preserveStartEnd"
+                    minTickGap={16}
+                  />
+                  <YAxis tickLine={false} axisLine={false} fontSize={11} stroke="#667085" width={54} tickFormatter={formatCompactINR} />
+                  <Tooltip
+                    cursor={{ fill: '#F9FAFB' }}
+                    formatter={(v, name) => [formatCurrency(Number(v) || 0), name === 'sales' ? 'Sales' : 'Purchases']}
+                    contentStyle={{
+                      backgroundColor: '#FFFFFF',
+                      border: '1px solid #E4E7EC',
+                      borderRadius: 8,
+                      fontSize: 12,
+                      boxShadow: '0 4px 12px rgba(16, 24, 40, 0.08)',
+                    }}
+                  />
+                  <Bar dataKey="sales" fill={SERIES.sales} radius={[4, 4, 0, 0]} maxBarSize={24} />
+                  <Bar dataKey="purchases" fill={SERIES.purchases} radius={[4, 4, 0, 0]} maxBarSize={24} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-[13px] text-muted">
+                No sales or purchase cashflow recorded in {periodLabel}.
+              </div>
+            )}
           </div>
         </section>
 
@@ -430,40 +459,47 @@ export default function DashboardPage() {
       {/* Bottom Row: Recent Transactions, Appointments, Activity */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <section className="bg-surface rounded-xl border border-border min-w-0">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-            <h2 className="text-sm font-semibold text-foreground">Recent Transactions</h2>
-            <Link href="/sales" className="text-xs font-medium text-primary hover:text-primary-hover">
+          <div className="flex items-center justify-between gap-2 px-5 py-4 border-b border-border">
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-foreground">Recent Transactions</h2>
+              <p className="text-[11px] text-muted mt-0.5">{activePeriodLabel}</p>
+            </div>
+            <Link href="/sales" className="text-xs font-medium text-primary hover:text-primary-hover shrink-0">
               View All
             </Link>
           </div>
-          <ul className="divide-y divide-border">
-            {recentTransactions.map((tx) => (
-              <li key={tx.id}>
-                <Link
-                  href={tx.type === 'sale' ? `/sales?q=${tx.ref}` : `/purchases?q=${tx.ref}`}
-                  className="flex items-center gap-3 px-5 py-3 hover:bg-muted-surface transition-colors"
-                >
-                  <span
-                    className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                      tx.type === 'sale' ? 'bg-primary-subtle text-primary' : 'bg-info-bg text-info'
-                    }`}
+          {recentTransactions.length === 0 ? (
+            <p className="px-5 py-10 text-[13px] text-muted text-center">No transactions in {periodLabel}.</p>
+          ) : (
+            <ul className="divide-y divide-border">
+              {recentTransactions.map((tx) => (
+                <li key={tx.id}>
+                  <Link
+                    href={tx.type === 'sale' ? `/sales?q=${tx.ref}` : `/purchases?q=${tx.ref}`}
+                    className="flex items-center gap-3 px-5 py-3 hover:bg-muted-surface transition-colors"
                   >
-                    {tx.type === 'sale' ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownLeft className="w-4 h-4" />}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-medium text-foreground truncate">{tx.party}</p>
-                    <p className="text-xs text-muted">
-                      <span className="font-mono">{tx.ref}</span> · {formatDate(tx.date)}
-                    </p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-[13px] font-semibold text-foreground tabular-nums">{formatCurrency(tx.amount)}</p>
-                    <StatusBadge status={tx.status} variant="dot" />
-                  </div>
-                </Link>
-              </li>
-            ))}
-          </ul>
+                    <span
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                        tx.type === 'sale' ? 'bg-primary-subtle text-primary' : 'bg-info-bg text-info'
+                      }`}
+                    >
+                      {tx.type === 'sale' ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownLeft className="w-4 h-4" />}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-medium text-foreground truncate">{tx.party}</p>
+                      <p className="text-xs text-muted">
+                        <span className="font-mono">{tx.ref}</span> · {formatDate(tx.date)}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-[13px] font-semibold text-foreground tabular-nums">{formatCurrency(tx.amount)}</p>
+                      <StatusBadge status={tx.status} variant="dot" />
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
 
         <section className="bg-surface rounded-xl border border-border min-w-0">
@@ -504,19 +540,24 @@ export default function DashboardPage() {
         </section>
 
         <section className="bg-surface rounded-xl border border-border min-w-0">
-          <div className="px-5 py-4 border-b border-border">
+          <div className="flex items-center justify-between gap-2 px-5 py-4 border-b border-border">
             <h2 className="text-sm font-semibold text-foreground">Recent Activity</h2>
+            <span className="text-[11px] font-medium text-muted">{activePeriodLabel}</span>
           </div>
-          <ol className="px-5 py-4 space-y-3.5 max-h-[340px] overflow-y-auto">
-            {activityLogs.slice(0, 6).map((log) => (
-              <li key={log.id} className="relative pl-4">
-                <span className="absolute left-0 top-1.5 w-1.5 h-1.5 rounded-full bg-primary" />
-                <p className="text-[13px] font-medium text-foreground leading-snug">{log.title}</p>
-                <p className="text-xs text-muted mt-0.5 leading-relaxed">{log.description}</p>
-                <p className="text-[11px] text-subtle mt-0.5">{getRelativeTime(log.date)}</p>
-              </li>
-            ))}
-          </ol>
+          {filteredActivity.length === 0 ? (
+            <p className="px-5 py-10 text-[13px] text-muted text-center">No activity logged in {periodLabel}.</p>
+          ) : (
+            <ol className="px-5 py-4 space-y-3.5 max-h-[340px] overflow-y-auto">
+              {filteredActivity.map((log) => (
+                <li key={log.id} className="relative pl-4">
+                  <span className="absolute left-0 top-1.5 w-1.5 h-1.5 rounded-full bg-primary" />
+                  <p className="text-[13px] font-medium text-foreground leading-snug">{log.title}</p>
+                  <p className="text-xs text-muted mt-0.5 leading-relaxed">{log.description}</p>
+                  <p className="text-[11px] text-subtle mt-0.5">{getRelativeTime(log.date)}</p>
+                </li>
+              ))}
+            </ol>
+          )}
         </section>
       </div>
     </div>
