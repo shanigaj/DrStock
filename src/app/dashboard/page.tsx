@@ -208,8 +208,8 @@ export default function DashboardPage() {
         }
       />
 
-      {/* Responsive 5-Card KPI Grid */}
-      <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+      {/* Responsive 5-Card Uniform KPI Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 min-[1200px]:grid-cols-5 gap-4 auto-rows-fr">
         <StatCard
           title="Total Medicines"
           value={products.length}
@@ -249,7 +249,7 @@ export default function DashboardPage() {
         />
         <Link
           href="/inventory?status=low-stock"
-          className="rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-focus min-[480px]:col-span-2 lg:col-span-2 xl:col-span-1 block"
+          className="h-full rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-focus block"
         >
           <StatCard
             title="Low Stock Alerts"

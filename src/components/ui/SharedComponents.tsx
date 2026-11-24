@@ -49,34 +49,34 @@ export function StatCard({
   const displayValue = isCurrency && typeof value === 'number' ? formatCurrency(value) : value;
 
   return (
-    <div className="bg-surface rounded-xl border border-border p-4 sm:p-5 hover:border-border-strong transition-colors">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
+    <div className="h-full min-h-[136px] bg-surface rounded-xl border border-border p-4 xl:p-5 hover:border-border-strong transition-colors flex flex-col justify-between">
+      <div className="min-w-0">
+        <div className="flex items-center justify-between gap-2">
           <p className="text-[13px] font-medium text-muted truncate">{title}</p>
-          <p className="text-[26px] sm:text-[28px] font-semibold text-foreground mt-1.5 leading-tight tabular-nums tracking-tight truncate">
-            {displayValue}
-          </p>
-          {subtitle && (
-            <p className="text-xs text-muted mt-1.5 truncate">{subtitle}</p>
-          )}
-          {trend !== undefined && (
-            <div className="flex items-center gap-1.5 mt-2">
-              <span
-                className={`inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-semibold tabular-nums ${
-                  trend.value >= 0 ? 'bg-success-bg text-success' : 'bg-danger-bg text-danger'
-                }`}
-              >
-                {trend.value >= 0 ? '+' : ''}
-                {trend.value}%
-              </span>
-              <span className="text-xs text-muted truncate">{trend.label}</span>
-            </div>
-          )}
+          <div className={`${iconBg} rounded-lg p-1.5 shrink-0 border border-border/60`}>
+            <Icon className={`w-4 h-4 ${iconColor}`} />
+          </div>
         </div>
-        <div className={`${iconBg} rounded-lg p-2 shrink-0 border border-border/60`}>
-          <Icon className={`w-4 h-4 ${iconColor}`} />
-        </div>
+        <p className="text-[22px] sm:text-[24px] font-semibold text-foreground mt-2 leading-tight tabular-nums tracking-tight truncate">
+          {displayValue}
+        </p>
+        {subtitle && <p className="text-xs text-muted mt-1 truncate">{subtitle}</p>}
       </div>
+      {trend !== undefined ? (
+        <div className="flex items-center gap-1.5 mt-2.5 pt-0.5">
+          <span
+            className={`inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-semibold tabular-nums ${
+              trend.value >= 0 ? 'bg-success-bg text-success' : 'bg-danger-bg text-danger'
+            }`}
+          >
+            {trend.value >= 0 ? '+' : ''}
+            {trend.value}%
+          </span>
+          <span className="text-xs text-muted truncate">{trend.label}</span>
+        </div>
+      ) : (
+        <div className="h-5 mt-2.5" aria-hidden="true" />
+      )}
     </div>
   );
 }
@@ -93,9 +93,11 @@ export function Metric({
   accent?: string;
 }) {
   return (
-    <div className="bg-surface px-4 py-3.5 rounded-xl border border-border min-w-0">
-      <p className="text-xs font-medium text-muted truncate">{label}</p>
-      <p className={`text-lg sm:text-xl font-semibold mt-0.5 tabular-nums truncate ${accent}`}>{value}</p>
+    <div className="h-full bg-surface px-4 py-3.5 rounded-xl border border-border min-w-0 flex flex-col justify-between">
+      <div>
+        <p className="text-xs font-medium text-muted truncate">{label}</p>
+        <p className={`text-lg sm:text-xl font-semibold mt-0.5 tabular-nums truncate ${accent}`}>{value}</p>
+      </div>
       {hint && <p className="text-[11px] text-muted mt-0.5 truncate">{hint}</p>}
     </div>
   );
